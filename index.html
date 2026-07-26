@@ -260,9 +260,14 @@
     // damit die Cloud Function (dailyReminderCheck/notifyNewMessage) es erreichen kann.
     async function registerPushToken() {
         if (Notification.permission !== 'granted' || !currentUserIdentity) return;
+        if (!('serviceWorker' in navigator)) return;
         try {
+            // getToken() braucht die Registrierung unseres eigenen sw.js explizit,
+            // sonst sucht Firebase automatisch nach "firebase-messaging-sw.js" (gibt es bei uns nicht)
+            // und der Token wird nie erzeugt.
+            const swRegistration = await navigator.serviceWorker.ready;
             const messaging = getMessaging(getApp());
-            const token = await getToken(messaging, { vapidKey: VAPID_KEY });
+            const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swRegistration });
             if (token) {
                 await setDoc(doc(db, 'pushTokens', token), {
                     familyName: currentUserIdentity,
@@ -271,6 +276,7 @@
             }
         } catch (e) {
             console.error("Push-Token-Registrierung fehlgeschlagen:", e);
+            window.showToast("Push-Registrierung fehlgeschlagen: " + e.message, "error");
         }
     }
 
