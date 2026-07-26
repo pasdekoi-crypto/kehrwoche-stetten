@@ -100,3 +100,16 @@ exports.notifyNewMessage = onDocumentCreated("messages/{msgId}", async (event) =
         },
     }));
 });
+
+// Benachrichtigt eine Familie, wenn eine weitere Person sich ebenfalls als diese Familie anmeldet
+exports.notifyIdentityConflict = onDocumentCreated("identityConflicts/{id}", async (event) => {
+    const conflict = event.data.data();
+    const snap = await db.collection("pushTokens").where("familyName", "==", conflict.familyName).get();
+    const joinedByText = conflict.joinedBy ? ` (Familie ${conflict.joinedBy})` : "";
+    await sendAndCleanup(snap.docs, () => ({
+        data: {
+            title: `👋 Noch jemand ist jetzt Familie ${conflict.familyName}`,
+            body: `Eine weitere Person${joinedByText} hat sich ebenfalls als eure Familie angemeldet.`,
+        },
+    }));
+});

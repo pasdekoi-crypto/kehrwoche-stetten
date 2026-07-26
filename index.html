@@ -68,7 +68,8 @@
                 Deine Familie auswählen
             </h3>
             <div class="flex flex-wrap gap-2" id="identity-buttons"></div>
-            <button onclick="resetIdentity()" id="btn-change-identity" class="hidden mt-3 text-[10px] text-gray-400 hover:text-green-600 underline font-bold uppercase tracking-tighter">Familie auswählen</button>
+            <button onclick="showIdentityPicker()" id="btn-change-identity" class="hidden mt-3 text-[10px] text-gray-400 hover:text-green-600 underline font-bold uppercase tracking-tighter">Familie auswählen</button>
+            <button onclick="cancelIdentityPicker()" id="btn-cancel-picker" class="hidden mt-2 text-[10px] text-gray-400 hover:text-red-500 underline font-bold uppercase tracking-tighter">Abbrechen</button>
             <div id="notification-banner" class="hidden mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-3">
                 <div class="flex items-center gap-2">
                     <span class="text-xl">🔔</span>
@@ -336,6 +337,7 @@
     let trashSchedule = {};
     let currentUserIdentity = localStorage.getItem('user_identity') || null;
     let claimedIdentities = {};
+    let showingIdentityPicker = false; // true waehrend "Familie auswaehlen" offen ist, ohne schon abgemeldet zu sein
     let db, auth, scheduleDocRef, messagesCollRef, identitiesDocRef, rotationDocRef;
     let currentDisplayDate = new Date();
 
@@ -456,17 +458,45 @@
     // --- IDENTITY & MESSAGES ---
     // Mehrere Geraete duerfen gleichzeitig dieselbe Familie sein (z.B. Mann + Frau) - keine Sperre.
     // Stattdessen wird ein "zuletzt aktiv"-Zeitstempel gefuehrt (siehe updatePresence/renderResidents).
-    window.setIdentity = async function(name) {
-        currentUserIdentity = name;
-        localStorage.setItem('user_identity', name);
-        window.showToast(`Willkommen, Familie ${name}!`, "success");
+
+    // Zeigt die Namensauswahl, OHNE die aktuelle Identitaet schon abzumelden.
+    // Erst ein Klick auf einen Namen (selectIdentity) loest tatsaechlich etwas aus.
+    window.showIdentityPicker = function() {
+        showingIdentityPicker = true;
         window.initApp();
-        updatePresence();
     };
 
-    window.resetIdentity = async function() {
-        // Eigenen "zuletzt aktiv"-Zeitstempel sofort loeschen, statt ihn 3 Minuten lang
-        // gruen stehen zu lassen, obwohl man laengst zu einem anderen Namen gewechselt ist.
+    window.cancelIdentityPicker = function() {
+        showingIdentityPicker = false;
+        window.initApp();
+    };
+
+    // Wird beim Klick auf einen Namen in der Auswahl aufgerufen.
+    window.selectIdentity = async function(name) {
+        if (name === currentUserIdentity) {
+            window.showToast(`Du bist schon Familie ${name}!`, "info");
+            showingIdentityPicker = false;
+            window.initApp();
+            return;
+        }
+
+        if (isOnline(name)) {
+            const weiter = confirm(`Familie ${name} ist gerade schon angemeldet. Trotzdem als ${name} anmelden?`);
+            if (!weiter) return;
+            // Die schon angemeldete Familie per Push ueber den Beitritt informieren
+            try {
+                await addDoc(collection(db, 'identityConflicts'), {
+                    familyName: name,
+                    joinedBy: currentUserIdentity || null,
+                    timestamp: Date.now()
+                });
+            } catch (e) {
+                console.error("Konflikt-Benachrichtigung fehlgeschlagen:", e);
+            }
+        }
+
+        // Eigenen alten "zuletzt aktiv"-Zeitstempel loeschen, statt ihn 3 Minuten lang
+        // gruen stehen zu lassen, obwohl man laengst gewechselt hat.
         if (currentUserIdentity) {
             try {
                 await setDoc(identitiesDocRef, { [currentUserIdentity]: deleteField() }, { merge: true });
@@ -474,9 +504,13 @@
                 console.error("Presence-Clear fehlgeschlagen:", e);
             }
         }
-        localStorage.removeItem('user_identity');
-        currentUserIdentity = null;
+
+        currentUserIdentity = name;
+        localStorage.setItem('user_identity', name);
+        showingIdentityPicker = false;
+        window.showToast(`Willkommen, Familie ${name}!`, "success");
         window.initApp();
+        updatePresence();
     };
 
     // Aktualisiert den "zuletzt aktiv"-Zeitstempel der aktuell gewaehlten Familie
@@ -562,18 +596,21 @@
         
         const idContainer = document.getElementById("identity-buttons");
         const changeBtn = document.getElementById("btn-change-identity");
-        
-        if(currentUserIdentity) {
+        const cancelBtn = document.getElementById("btn-cancel-picker");
+
+        if(currentUserIdentity && !showingIdentityPicker) {
             idContainer.innerHTML = `<span class="bg-green-600 text-white px-5 py-2.5 rounded-full text-xs font-black shadow-md border border-green-500">${currentUserIdentity}</span>`;
             changeBtn.classList.remove("hidden");
+            cancelBtn.classList.add("hidden");
         } else {
             // Jede Familie kann jederzeit gewaehlt werden, auch von mehreren Geraeten gleichzeitig
             // (z.B. Mann + Frau) - keine Sperre mehr, aber ein gruener Punkt zeigt an, wer schon online ist.
             idContainer.innerHTML = rotation.map(r => {
                 const online = isOnline(r);
-                return `<button onclick="setIdentity('${r}')" class="bg-white border ${online ? 'border-green-400' : 'border-gray-200'} text-gray-600 px-4 py-2 rounded-full text-[10px] font-bold hover:bg-green-500 hover:text-white transition shadow-sm inline-flex items-center gap-1.5">${online ? '<span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>' : ''}${r}</button>`;
+                return `<button onclick="selectIdentity('${r}')" class="bg-white border ${online ? 'border-green-400' : 'border-gray-200'} text-gray-600 px-4 py-2 rounded-full text-[10px] font-bold hover:bg-green-500 hover:text-white transition shadow-sm inline-flex items-center gap-1.5">${online ? '<span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>' : ''}${r}</button>`;
             }).join("");
             changeBtn.classList.add("hidden");
+            cancelBtn.classList.toggle("hidden", !currentUserIdentity);
         }
 
         const personEl = document.getElementById("current-person");
