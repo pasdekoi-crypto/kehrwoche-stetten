@@ -8,11 +8,10 @@ service cloud.firestore {
       allow write: if request.auth != null && request.auth.token.email == "admin@kehrwoche-stetten.app";
     }
 
-    // Namens-Identitaeten: jeder angemeldete Nutzer darf lesen/schreiben,
-    // um seinen eigenen Familiennamen zu waehlen oder freizugeben.
-    // (Bekannte Einschraenkung: dieses Dokument ist nicht feingranular pro Familie
-    // geschuetzt, "Namen freigeben" im Admin-Bereich ist dadurch nicht staerker
-    // abgesichert als jeder andere Schreibzugriff hier.)
+    // Namens-Identitaeten: jeder angemeldete Nutzer darf lesen/schreiben.
+    // Mehrere Geraete duerfen gleichzeitig dieselbe Familie sein (z.B. Mann + Frau) -
+    // es gibt keine Exklusiv-Sperre mehr. Das Dokument speichert nur noch einen
+    // "zuletzt aktiv"-Zeitstempel je Familie (Heartbeat, siehe updatePresence() im Client).
     match /kehrwoche/identities {
       allow read: if request.auth != null;
       allow write: if request.auth != null;
