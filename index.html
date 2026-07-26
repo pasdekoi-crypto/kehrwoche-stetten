@@ -129,6 +129,14 @@
                 Alle Hausbewohner
             </h3>
             <ul id="residents-list" class="divide-y divide-gray-50"></ul>
+
+            <div id="admin-resident-manage" class="hidden mt-4 pt-4 border-t border-gray-100">
+                <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Familie hinzufügen (Admin)</p>
+                <div class="flex gap-2">
+                    <input type="text" id="new-resident-input" placeholder="z.B. MUELLER" class="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-green-500 uppercase">
+                    <button onclick="addResident()" class="bg-green-600 text-white text-xs font-black px-4 py-2 rounded-xl">Hinzufügen</button>
+                </div>
+            </div>
         </section>
 
         <div class="flex flex-col items-center gap-4 pt-4 pb-8">
@@ -207,7 +215,7 @@
 <script type="module">
     import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithCustomToken, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, deleteDoc, getDocs, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, deleteDoc, getDocs, runTransaction, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
     import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
 
     // --- DEINE PERSÖNLICHE GOOGLE DATENBANK ---
@@ -221,7 +229,8 @@
     };
 
     // --- CONFIG ---
-    const rotation = ["FLEMMING", "VASILJEVS", "ASADI", "HAUSGEM.", "KNEER", "LISKE", "GHARBI", "DILETTO"];
+    // Fallback, solange die Liste noch nicht aus der Cloud geladen ist (siehe rotationDocRef/onSnapshot)
+    let rotation = ["FLEMMING", "VASILJEVS", "ASADI", "HAUSGEM.", "KNEER", "LISKE", "GHARBI", "DILETTO"];
     const anchorDate = new Date(2026, 0, 5);
     // Admin-Login läuft jetzt über echtes Firebase-Auth-Konto (E-Mail/Passwort) statt Klartext-PIN im Code.
     // Muss einmalig in der Firebase Console angelegt werden (siehe README).
@@ -328,7 +337,7 @@
     let trashSchedule = {};
     let currentUserIdentity = localStorage.getItem('user_identity') || null;
     let claimedIdentities = {};
-    let db, auth, scheduleDocRef, messagesCollRef, identitiesDocRef;
+    let db, auth, scheduleDocRef, messagesCollRef, identitiesDocRef, rotationDocRef;
     let currentDisplayDate = new Date();
 
     // --- FIREBASE SYNC ---
@@ -350,10 +359,12 @@
                 scheduleDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'schedules', 'main');
                 messagesCollRef = collection(db, 'artifacts', appId, 'public', 'data', 'messages');
                 identitiesDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'identities');
+                rotationDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'rotation');
             } else {
                 scheduleDocRef = doc(db, 'kehrwoche', 'schedule');
                 messagesCollRef = collection(db, 'messages');
                 identitiesDocRef = doc(db, 'kehrwoche', 'identities');
+                rotationDocRef = doc(db, 'kehrwoche', 'rotation');
             }
 
             const initAuth = async () => {
@@ -393,6 +404,14 @@
                             claimedIdentities = snap.data();
                         } else {
                             claimedIdentities = {};
+                        }
+                        window.initApp();
+                    });
+
+                    // Sync Bewohner-Liste (Rotation) - Admin kann Familien hinzufuegen/entfernen ohne Code-Aenderung
+                    onSnapshot(rotationDocRef, (snap) => {
+                        if (snap.exists() && Array.isArray(snap.data().names) && snap.data().names.length > 0) {
+                            rotation = snap.data().names;
                         }
                         window.initApp();
                     });
@@ -636,6 +655,7 @@
 
     window.renderResidents = function() {
         const list = document.getElementById("residents-list");
+        const isAdmin = localStorage.getItem('kehrwoche_admin') === 'true';
         list.innerHTML = rotation.map(p => {
             const isMe = p === currentUserIdentity;
             const nextDate = window.getNextWeekForPerson(p);
@@ -659,8 +679,9 @@
                     <span class="text-xs ${isMe ? 'font-black text-green-700' : 'font-bold text-gray-700'}">${p}</span>
                     <div class="flex gap-1 mt-1">${trashIcons}</div>
                 </div>
-                <div class="text-right">
+                <div class="text-right flex items-center gap-2">
                     <span class="text-[10px] font-bold text-gray-400">${dateStr}</span>
+                    ${isAdmin ? `<button onclick="removeResident('${p}')" class="text-red-400 hover:text-red-600 text-xs p-1">✕</button>` : ''}
                 </div>
             </li>`;
         }).join("");
@@ -852,14 +873,48 @@ SEHR WICHTIG FÜR DEN NAMEN (name):
         }
     };
 
-    window.checkAdminStatus = () => { 
-        const a = localStorage.getItem('kehrwoche_admin')==='true'; 
-        document.getElementById('admin-update-btn').classList.toggle('hidden', !a); 
-        document.getElementById('admin-clear-msgs-btn').classList.toggle('hidden', !a); 
-        document.getElementById('admin-unlock-btn').classList.toggle('hidden', !a); 
-        const b = document.getElementById('admin-login-btn'); 
-        b.innerText = a?"Logout Admin":"Admin"; 
-        b.className = a?"bg-red-100 text-red-600 font-black py-2.5 px-8 rounded-full text-[10px] uppercase tracking-widest":"bg-gray-100 text-gray-400 font-black py-2.5 px-8 rounded-full text-[10px] uppercase tracking-widest"; 
+    window.checkAdminStatus = () => {
+        const a = localStorage.getItem('kehrwoche_admin')==='true';
+        document.getElementById('admin-update-btn').classList.toggle('hidden', !a);
+        document.getElementById('admin-clear-msgs-btn').classList.toggle('hidden', !a);
+        document.getElementById('admin-unlock-btn').classList.toggle('hidden', !a);
+        document.getElementById('admin-resident-manage').classList.toggle('hidden', !a);
+        const b = document.getElementById('admin-login-btn');
+        b.innerText = a?"Logout Admin":"Admin";
+        b.className = a?"bg-red-100 text-red-600 font-black py-2.5 px-8 rounded-full text-[10px] uppercase tracking-widest":"bg-gray-100 text-gray-400 font-black py-2.5 px-8 rounded-full text-[10px] uppercase tracking-widest";
+        window.renderResidents();
+    };
+
+    // --- Bewohner-Verwaltung (Admin): Familien zur Rotation hinzufuegen/entfernen ohne Code-Aenderung ---
+    window.addResident = async function() {
+        const input = document.getElementById('new-resident-input');
+        const name = input.value.trim().toUpperCase();
+        if (!name) return;
+        if (rotation.includes(name)) {
+            return window.showToast(`${name} ist schon in der Liste!`, "error");
+        }
+        try {
+            await setDoc(rotationDocRef, { names: arrayUnion(name) }, { merge: true });
+            input.value = "";
+            window.showToast(`${name} wurde hinzugefügt!`, "success");
+        } catch (e) {
+            console.error("Familie hinzufuegen fehlgeschlagen:", e);
+            window.showToast("Fehler beim Hinzufügen.", "error");
+        }
+    };
+
+    window.removeResident = async function(name) {
+        if (rotation.length <= 1) {
+            return window.showToast("Die letzte Familie kann nicht entfernt werden.", "error");
+        }
+        if (!confirm(`"${name}" wirklich aus der Rotation entfernen? Das verschiebt die Kehrwoche-Reihenfolge für alle.`)) return;
+        try {
+            await setDoc(rotationDocRef, { names: arrayRemove(name) }, { merge: true });
+            window.showToast(`${name} wurde entfernt.`, "info");
+        } catch (e) {
+            console.error("Familie entfernen fehlgeschlagen:", e);
+            window.showToast("Fehler beim Entfernen.", "error");
+        }
     };
 
     window.openModal = (date, person, trash) => { 

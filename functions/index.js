@@ -5,20 +5,30 @@ const admin = require("firebase-admin");
 admin.initializeApp();
 const db = admin.firestore();
 
-const ROTATION = ["FLEMMING", "VASILJEVS", "ASADI", "HAUSGEM.", "KNEER", "LISKE", "GHARBI", "DILETTO"];
+// Fallback, falls die Rotation noch nicht in der Cloud angelegt wurde
+const DEFAULT_ROTATION = ["FLEMMING", "VASILJEVS", "ASADI", "HAUSGEM.", "KNEER", "LISKE", "GHARBI", "DILETTO"];
 const ANCHOR_UTC = Date.UTC(2026, 0, 5);
 
+// Liest die aktuelle Bewohner-Liste aus der Cloud (vom Admin per App verwaltet, siehe index.html)
+async function getRotation() {
+    const snap = await db.doc("kehrwoche/rotation").get();
+    if (snap.exists && Array.isArray(snap.data().names) && snap.data().names.length > 0) {
+        return snap.data().names;
+    }
+    return DEFAULT_ROTATION;
+}
+
 // Identisch zur DST-sicheren Logik im Client (index.html: getPersonForDate)
-function getPersonForDate(date) {
+function getPersonForDate(date, rotationArr) {
     const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
     const day = d.getDay();
     const diff = d.getDate() - day + (day === 0 ? -6 : 1);
     const monday = new Date(d.setDate(diff));
     const mondayUTC = Date.UTC(monday.getFullYear(), monday.getMonth(), monday.getDate());
     const weeksDiff = Math.floor((mondayUTC - ANCHOR_UTC) / (7 * 24 * 60 * 60 * 1000));
-    let index = weeksDiff % ROTATION.length;
-    if (index < 0) index += ROTATION.length;
-    return ROTATION[index] || "FREE";
+    let index = weeksDiff % rotationArr.length;
+    if (index < 0) index += rotationArr.length;
+    return rotationArr[index] || "FREE";
 }
 
 function formatDateString(d) {
@@ -47,9 +57,10 @@ exports.dailyReminderCheck = onSchedule(
         const today = new Date();
         const tomorrow = new Date(today);
         tomorrow.setDate(today.getDate() + 1);
+        const rotationArr = await getRotation();
 
         if (tomorrow.getDay() === 1) {
-            const person = getPersonForDate(tomorrow);
+            const person = getPersonForDate(tomorrow, rotationArr);
             if (person !== "FREE" && person !== "HAUSGEM.") {
                 const snap = await db.collection("pushTokens").where("familyName", "==", person).get();
                 await sendAndCleanup(snap.docs, () => ({

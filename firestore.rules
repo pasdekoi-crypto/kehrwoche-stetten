@@ -32,5 +32,11 @@ service cloud.firestore {
       allow read: if false;
       allow write: if request.auth != null;
     }
+
+    // Bewohner-Rotation: alle duerfen lesen, nur der Admin darf Familien hinzufuegen/entfernen
+    match /kehrwoche/rotation {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.email == "admin@kehrwoche-stetten.app";
+    }
   }
 }
