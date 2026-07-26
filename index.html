@@ -681,7 +681,7 @@
                 </div>
                 <div class="text-right flex items-center gap-2">
                     <span class="text-[10px] font-bold text-gray-400">${dateStr}</span>
-                    ${isAdmin ? `<button onclick="removeResident('${p}')" class="text-red-400 hover:text-red-600 text-xs p-1">✕</button>` : ''}
+                    ${isAdmin ? `<button onclick="renameResident('${p}')" class="text-gray-400 hover:text-green-600 text-xs p-1" title="Umbenennen">✎</button><button onclick="removeResident('${p}')" class="text-red-400 hover:text-red-600 text-xs p-1" title="Entfernen">✕</button>` : ''}
                 </div>
             </li>`;
         }).join("");
@@ -914,6 +914,33 @@ SEHR WICHTIG FÜR DEN NAMEN (name):
         } catch (e) {
             console.error("Familie entfernen fehlgeschlagen:", e);
             window.showToast("Fehler beim Entfernen.", "error");
+        }
+    };
+
+    // Ersetzt eine Familie durch eine andere an genau derselben Stelle in der Rotation,
+    // damit sich das Kehrwoche-Zeitfenster fuer alle anderen NICHT verschiebt.
+    window.renameResident = async function(oldName) {
+        const input = prompt(`Neuer Name statt "${oldName}":`, oldName);
+        if (!input) return;
+        const newName = input.trim().toUpperCase();
+        if (!newName || newName === oldName) return;
+        if (rotation.includes(newName)) {
+            return window.showToast(`${newName} ist schon in der Liste!`, "error");
+        }
+        try {
+            await runTransaction(db, async (transaction) => {
+                const snap = await transaction.get(rotationDocRef);
+                const names = snap.exists() ? (snap.data().names || []) : [];
+                const idx = names.indexOf(oldName);
+                if (idx === -1) throw new Error(`"${oldName}" wurde nicht gefunden`);
+                const updated = [...names];
+                updated[idx] = newName;
+                transaction.set(rotationDocRef, { names: updated }, { merge: true });
+            });
+            window.showToast(`${oldName} wurde zu ${newName}!`, "success");
+        } catch (e) {
+            console.error("Familie umbenennen fehlgeschlagen:", e);
+            window.showToast("Fehler beim Umbenennen: " + e.message, "error");
         }
     };
 
