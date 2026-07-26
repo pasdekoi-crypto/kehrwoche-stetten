@@ -215,7 +215,7 @@
 <script type="module">
     import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithCustomToken, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, deleteDoc, getDocs, runTransaction, arrayUnion, arrayRemove, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, deleteDoc, getDocs, runTransaction, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
     import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
 
     // --- DEINE PERSÖNLICHE GOOGLE DATENBANK ---
@@ -495,11 +495,12 @@
             }
         }
 
-        // Eigenen alten "zuletzt aktiv"-Zeitstempel loeschen, statt ihn 3 Minuten lang
-        // gruen stehen zu lassen, obwohl man laengst gewechselt hat.
+        // Eigenen "zuletzt aktiv"-Zeitstempel auf "gerade eben abgelaufen" zurueckdatieren, statt ihn
+        // komplett zu loeschen: dadurch verschwindet sofort der gruene "Online"-Punkt, aber der graue
+        // "schon mal aktiv"-Punkt bleibt fuer die Familie erhalten (siehe wasActiveBefore im Picker).
         if (currentUserIdentity) {
             try {
-                await setDoc(identitiesDocRef, { [currentUserIdentity]: deleteField() }, { merge: true });
+                await setDoc(identitiesDocRef, { [currentUserIdentity]: Date.now() - (4 * 60 * 1000) }, { merge: true });
             } catch (e) {
                 console.error("Presence-Clear fehlgeschlagen:", e);
             }
@@ -604,10 +605,15 @@
             cancelBtn.classList.add("hidden");
         } else {
             // Jede Familie kann jederzeit gewaehlt werden, auch von mehreren Geraeten gleichzeitig
-            // (z.B. Mann + Frau) - keine Sperre mehr, aber ein gruener Punkt zeigt an, wer schon online ist.
+            // (z.B. Mann + Frau) - keine Sperre mehr. Gruener Punkt = gerade online,
+            // grauer Punkt = schon mal genutzt (aber gerade nicht online), kein Punkt = noch nie genutzt.
             idContainer.innerHTML = rotation.map(r => {
                 const online = isOnline(r);
-                return `<button onclick="selectIdentity('${r}')" class="bg-white border ${online ? 'border-green-400' : 'border-gray-200'} text-gray-600 px-4 py-2 rounded-full text-[10px] font-bold hover:bg-green-500 hover:text-white transition shadow-sm inline-flex items-center gap-1.5">${online ? '<span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>' : ''}${r}</button>`;
+                const wasActiveBefore = typeof claimedIdentities[r] === 'number';
+                let dot = '';
+                if (online) dot = '<span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>';
+                else if (wasActiveBefore) dot = '<span class="w-1.5 h-1.5 rounded-full bg-gray-300" title="Schon mal aktiv"></span>';
+                return `<button onclick="selectIdentity('${r}')" class="bg-white border ${online ? 'border-green-400' : 'border-gray-200'} text-gray-600 px-4 py-2 rounded-full text-[10px] font-bold hover:bg-green-500 hover:text-white transition shadow-sm inline-flex items-center gap-1.5">${dot}${r}</button>`;
             }).join("");
             changeBtn.classList.add("hidden");
             cancelBtn.classList.toggle("hidden", !currentUserIdentity);
