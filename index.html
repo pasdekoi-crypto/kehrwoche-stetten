@@ -206,7 +206,7 @@
 
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, deleteDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     // --- DEINE PERSÖNLICHE GOOGLE DATENBANK ---
@@ -221,8 +221,10 @@
 
     // --- CONFIG ---
     const rotation = ["FLEMMING", "VASILJEVS", "ASADI", "HAUSGEM.", "KNEER", "LISKE", "GHARBI", "DILETTO"];
-    const anchorDate = new Date(2026, 0, 5); 
-    const ADMIN_PIN = "55374";
+    const anchorDate = new Date(2026, 0, 5);
+    // Admin-Login läuft jetzt über echtes Firebase-Auth-Konto (E-Mail/Passwort) statt Klartext-PIN im Code.
+    // Muss einmalig in der Firebase Console angelegt werden (siehe README).
+    const ADMIN_EMAIL = "admin@kehrwoche-stetten.app";
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'kehrwoche-stetten-gharbi';
     
     // Notification Sound
@@ -764,27 +766,33 @@ SEHR WICHTIG FÜR DEN NAMEN (name):
         setTimeout(() => { el.classList.add("opacity-0"); setTimeout(() => el.remove(), 300); }, 3000); 
     };
 
-    window.toggleAdminMode = () => { 
-        if(localStorage.getItem('kehrwoche_admin')==='true') { 
-            localStorage.removeItem('kehrwoche_admin'); 
-            window.checkAdminStatus(); 
-            window.showToast("Admin Logout", "info"); 
-        } else { 
+    window.toggleAdminMode = () => {
+        if(localStorage.getItem('kehrwoche_admin')==='true') {
+            localStorage.removeItem('kehrwoche_admin');
+            // Zurück zur anonymen Sitzung, damit normale Nachbar-Funktionen weiterlaufen
+            signInAnonymously(auth).catch(e => console.error("Re-Anon-Login fehlgeschlagen:", e));
+            window.checkAdminStatus();
+            window.showToast("Admin Logout", "info");
+        } else {
             document.getElementById('admin-pin-input').value = "";
             document.getElementById('admin-apikey-input').value = localStorage.getItem('gemini_api_key') || "";
             document.getElementById('admin-error-msg').classList.add('hidden');
-            document.getElementById('admin-modal').classList.remove("hidden"); 
-            setTimeout(() => { 
-                document.getElementById('admin-modal').classList.remove("opacity-0"); 
-                document.getElementById('admin-modal-content').classList.remove("scale-90"); 
-            }, 10); 
-        } 
+            document.getElementById('admin-modal').classList.remove("hidden");
+            setTimeout(() => {
+                document.getElementById('admin-modal').classList.remove("opacity-0");
+                document.getElementById('admin-modal-content').classList.remove("scale-90");
+            }, 10);
+        }
     };
 
-    window.verifyAdminPin = () => { 
-        if(document.getElementById('admin-pin-input').value === ADMIN_PIN) { 
-            localStorage.setItem('kehrwoche_admin', 'true'); 
-            
+    window.verifyAdminPin = async function() {
+        const pw = document.getElementById('admin-pin-input').value;
+        document.getElementById('admin-error-msg').classList.add('hidden');
+        try {
+            // Echter Firebase-Login statt Klartext-Vergleich - Firestore-Regeln können das jetzt serverseitig prüfen
+            await signInWithEmailAndPassword(auth, ADMIN_EMAIL, pw);
+            localStorage.setItem('kehrwoche_admin', 'true');
+
             const apiKeyInput = document.getElementById('admin-apikey-input').value.trim();
             if(apiKeyInput) {
                 localStorage.setItem('gemini_api_key', apiKeyInput);
@@ -792,11 +800,12 @@ SEHR WICHTIG FÜR DEN NAMEN (name):
                 localStorage.removeItem('gemini_api_key');
             }
 
-            window.checkAdminStatus(); 
-            window.closeAdminModal(); 
-            window.showToast("Admin Aktiv!", "success"); 
-        } else {
-            document.getElementById('admin-error-msg').classList.remove('hidden'); 
+            window.checkAdminStatus();
+            window.closeAdminModal();
+            window.showToast("Admin Aktiv!", "success");
+        } catch (err) {
+            console.error("Admin-Login fehlgeschlagen:", err);
+            document.getElementById('admin-error-msg').classList.remove('hidden');
         }
     };
 
