@@ -914,6 +914,14 @@ SEHR WICHTIG FÜR DEN NAMEN (name):
     setupCloud();
     window.initApp();
     window.checkAdminStatus();
+
+    // --- Offline-Faehigkeit: Service Worker registrieren (nur ueber https/GitHub Pages,
+    // nicht wenn die Datei lokal per Doppelklick als file:// geoeffnet wird) ---
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('sw.js').catch(() => {});
+        });
+    }
 </script>
 </body>
 </html>
