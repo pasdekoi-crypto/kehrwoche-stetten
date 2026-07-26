@@ -205,9 +205,10 @@
 </div>
 
 <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithCustomToken, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, deleteDoc, getDocs, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
 
     // --- DEINE PERSÖNLICHE GOOGLE DATENBANK ---
     const myFirebaseConfig = {
@@ -226,6 +227,8 @@
     // Muss einmalig in der Firebase Console angelegt werden (siehe README).
     const ADMIN_EMAIL = "admin@kehrwoche-stetten.app";
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'kehrwoche-stetten-gharbi';
+    // Aus Firebase Console -> Projekteinstellungen -> Cloud Messaging -> Web-Push-Zertifikate
+    const VAPID_KEY = "BPe25j1KSAh8FiiKsF6x9Cjx33I93FWNefVa_mf0JPjTuPrDpofZzBVRsPkTGD9JsL8xj2ynczuxd4f0S-wpXnc";
     
     // Notification Sound
     const pingSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
@@ -246,10 +249,30 @@
                 body: "Du bekommst jetzt Benachrichtigungen für Nachrichten & Kehrwoche!",
                 icon: NOTIF_ICON, tag: 'welcome'
             });
+            await registerPushToken();
         } else {
             window.showToast("Erlaube Benachrichtigungen in den Browser-Einstellungen.", "error");
         }
     };
+
+    // Echte Hintergrund-Push-Benachrichtigungen (Firebase Cloud Messaging):
+    // registriert das Geraet mit der aktuell gewaehlten Familie in der Cloud,
+    // damit die Cloud Function (dailyReminderCheck/notifyNewMessage) es erreichen kann.
+    async function registerPushToken() {
+        if (Notification.permission !== 'granted' || !currentUserIdentity) return;
+        try {
+            const messaging = getMessaging(getApp());
+            const token = await getToken(messaging, { vapidKey: VAPID_KEY });
+            if (token) {
+                await setDoc(doc(db, 'pushTokens', token), {
+                    familyName: currentUserIdentity,
+                    updatedAt: Date.now()
+                });
+            }
+        } catch (e) {
+            console.error("Push-Token-Registrierung fehlgeschlagen:", e);
+        }
+    }
 
     function showBrowserNotification(title, body, tag) {
         if (Notification.permission !== 'granted') return;
@@ -263,6 +286,8 @@
         if (banner) banner.classList.toggle('hidden', Notification.permission !== 'default');
 
         if (!currentUserIdentity || Notification.permission !== 'granted') return;
+
+        registerPushToken();
 
         const today = new Date(); today.setHours(0,0,0,0);
         const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
