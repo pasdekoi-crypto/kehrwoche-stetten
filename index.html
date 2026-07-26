@@ -368,24 +368,29 @@
                 rotationDocRef = doc(db, 'kehrwoche', 'rotation');
             }
 
-            const initAuth = async () => {
-                try {
-                    if (useStrictPaths && typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                        await signInWithCustomToken(auth, __initial_auth_token);
-                    } else {
-                        await signInAnonymously(auth);
+            // Nur anonym anmelden, wenn wirklich noch KEINE Sitzung besteht - sonst wuerde das
+            // jedes Mal eine bestehende Admin-Anmeldung (E-Mail/Passwort) beim Neuladen ueberschreiben.
+            let authBootstrapped = false;
+            onAuthStateChanged(auth, async (user) => {
+                if (!authBootstrapped) {
+                    authBootstrapped = true;
+                    if (!user) {
+                        try {
+                            if (useStrictPaths && typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                await signInWithCustomToken(auth, __initial_auth_token);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                            console.log("Verbunden mit Datenbank!");
+                        } catch (error) {
+                            console.error("Auth-Fehler:", error);
+                            window.showToast("Bitte aktiviere 'Anonyme Anmeldung' in deiner Firebase Console!", "error");
+                            updateSyncStatus("offline");
+                        }
+                        return; // onAuthStateChanged feuert erneut, sobald die Anmeldung durch ist
                     }
-                    console.log("Verbunden mit Datenbank!");
-                } catch (error) {
-                    console.error("Auth-Fehler:", error);
-                    window.showToast("Bitte aktiviere 'Anonyme Anmeldung' in deiner Firebase Console!", "error");
-                    updateSyncStatus("offline");
                 }
-            };
 
-            initAuth();
-
-            onAuthStateChanged(auth, (user) => {
                 if (user) {
                     // Sync Kalender
                     onSnapshot(scheduleDocRef, (snap) => {
