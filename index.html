@@ -559,10 +559,11 @@
             changeBtn.classList.remove("hidden");
         } else {
             // Jede Familie kann jederzeit gewaehlt werden, auch von mehreren Geraeten gleichzeitig
-            // (z.B. Mann + Frau) - keine Sperre mehr, siehe "zuletzt aktiv"-Anzeige stattdessen.
-            idContainer.innerHTML = rotation.map(r =>
-                `<button onclick="setIdentity('${r}')" class="bg-white border border-gray-200 text-gray-600 px-4 py-2 rounded-full text-[10px] font-bold hover:bg-green-500 hover:text-white transition shadow-sm">${r}</button>`
-            ).join("");
+            // (z.B. Mann + Frau) - keine Sperre mehr, aber ein gruener Punkt zeigt an, wer schon online ist.
+            idContainer.innerHTML = rotation.map(r => {
+                const online = isOnline(r);
+                return `<button onclick="setIdentity('${r}')" class="bg-white border ${online ? 'border-green-400' : 'border-gray-200'} text-gray-600 px-4 py-2 rounded-full text-[10px] font-bold hover:bg-green-500 hover:text-white transition shadow-sm inline-flex items-center gap-1.5">${online ? '<span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>' : ''}${r}</button>`;
+            }).join("");
             changeBtn.classList.add("hidden");
         }
 
@@ -628,14 +629,20 @@
         }
     };
 
+    // Gilt als "online", wenn der Heartbeat (alle 60s via updatePresence) in den letzten 3 Minuten kam
+    function isOnline(name) {
+        const lastSeen = claimedIdentities[name];
+        return typeof lastSeen === 'number' && (Date.now() - lastSeen) < 3 * 60000;
+    }
+
     // Zeigt an, ob jemand gerade als diese Familie aktiv ist (Heartbeat alle 60s via updatePresence)
     function getPresenceLabel(name) {
         const lastSeen = claimedIdentities[name];
         if (!lastSeen || typeof lastSeen !== 'number') return '';
-        const diffMin = Math.floor((Date.now() - lastSeen) / 60000);
-        if (diffMin < 3) {
+        if (isOnline(name)) {
             return '<span class="inline-flex items-center gap-1 text-[9px] text-green-600 font-bold mt-0.5"><span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>Online</span>';
         }
+        const diffMin = Math.floor((Date.now() - lastSeen) / 60000);
         if (diffMin < 60) return `<span class="text-[9px] text-gray-400 mt-0.5">zuletzt aktiv vor ${diffMin} Min.</span>`;
         const diffH = Math.floor(diffMin / 60);
         if (diffH < 24) return `<span class="text-[9px] text-gray-400 mt-0.5">zuletzt aktiv vor ${diffH} Std.</span>`;
