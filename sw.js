@@ -21,9 +21,12 @@ firebase.initializeApp({
 const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
-    const title = (payload.notification && payload.notification.title) || "Haus-App Stetten";
+    // Bewusst nur "data"-Felder (kein "notification"-Feld in der Cloud Function),
+    // sonst zeigt das Betriebssystem die Nachricht automatisch UND dieser Handler
+    // nochmal an -> doppelte Benachrichtigungen.
+    const title = (payload.data && payload.data.title) || "Haus-App Stetten";
     const options = {
-        body: (payload.notification && payload.notification.body) || "",
+        body: (payload.data && payload.data.body) || "",
         icon: './icon-192.png'
     };
     self.registration.showNotification(title, options);

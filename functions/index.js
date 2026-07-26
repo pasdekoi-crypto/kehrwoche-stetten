@@ -53,7 +53,7 @@ exports.dailyReminderCheck = onSchedule(
             if (person !== "FREE" && person !== "HAUSGEM.") {
                 const snap = await db.collection("pushTokens").where("familyName", "==", person).get();
                 await sendAndCleanup(snap.docs, () => ({
-                    notification: {
+                    data: {
                         title: "🧹 Morgen beginnt eure Kehrwoche!",
                         body: `Familie ${person} – ab morgen seid ihr für das Treppenhaus zuständig!`,
                     },
@@ -68,7 +68,7 @@ exports.dailyReminderCheck = onSchedule(
             const names = schedule[tomorrowStr].map((t) => t.name).join(" & ");
             const allTokens = await db.collection("pushTokens").get();
             await sendAndCleanup(allTokens.docs, () => ({
-                notification: {
+                data: {
                     title: `🗑️ Morgen: ${names} rausstellen!`,
                     body: `Nicht vergessen – morgen wird ${names} abgeholt!`,
                 },
@@ -83,7 +83,7 @@ exports.notifyNewMessage = onDocumentCreated("messages/{msgId}", async (event) =
     const allTokens = await db.collection("pushTokens").get();
     const relevantDocs = allTokens.docs.filter((doc) => doc.data().familyName !== msg.sender);
     await sendAndCleanup(relevantDocs, () => ({
-        notification: {
+        data: {
             title: `📢 ${msg.sender} schreibt:`,
             body: msg.text,
         },
