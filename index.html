@@ -207,7 +207,7 @@
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithCustomToken, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, deleteDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, deleteDoc, getDocs, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     // --- DEINE PERSÖNLICHE GOOGLE DATENBANK ---
     const myFirebaseConfig = {
@@ -406,19 +406,31 @@
 
     // --- IDENTITY & MESSAGES ---
     window.setIdentity = async function(name) {
-        if (claimedIdentities[name]) {
-            return window.showToast(`Der Name ${name} wird bereits verwendet!`, "error");
+        try {
+            // Transaktion statt "lesen, dann schreiben": verhindert, dass zwei Nachbarn
+            // im selben Moment denselben Namen beanspruchen koennen (Race Condition).
+            const erfolgreich = await runTransaction(db, async (transaction) => {
+                const snap = await transaction.get(identitiesDocRef);
+                const aktuelleDaten = snap.exists() ? snap.data() : {};
+                if (aktuelleDaten[name]) {
+                    return false; // Name ist bereits vergeben
+                }
+                transaction.set(identitiesDocRef, { ...aktuelleDaten, [name]: true }, { merge: true });
+                return true;
+            });
+
+            if (!erfolgreich) {
+                return window.showToast(`Der Name ${name} wird bereits verwendet!`, "error");
+            }
+
+            currentUserIdentity = name;
+            localStorage.setItem('user_identity', name);
+            window.showToast(`Willkommen, Familie ${name}!`, "success");
+            window.initApp();
+        } catch (e) {
+            console.error("Fehler beim Beanspruchen des Namens:", e);
+            window.showToast("Fehler beim Auswählen. Bitte erneut versuchen.", "error");
         }
-        
-        currentUserIdentity = name;
-        localStorage.setItem('user_identity', name);
-        
-        // Identität in der Cloud sperren
-        claimedIdentities[name] = true;
-        await setDoc(identitiesDocRef, claimedIdentities, { merge: true });
-        
-        window.showToast(`Willkommen, Familie ${name}!`, "success");
-        window.initApp();
     };
 
     window.resetIdentity = async function() {
