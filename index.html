@@ -251,7 +251,10 @@
     let rotation = ["FLEMMING", "VASILJEVS", "ASADI", "HAUSGEM.", "KNEER", "LISKE", "GHARBI", "DILETTO"];
     // Wieviele Wochen am Stueck jede Familie dran ist, bevor die naechste uebernimmt (Admin einstellbar).
     let weeksPerTurn = 1;
-    const anchorDate = new Date(2026, 0, 5);
+    // Sonntag, an dem laut Muellkalender FLEMMING (Index 0) mit der Kehrwoche dran war/ist -
+    // verifiziert anhand des ausgehaengten AWB-Kalenders (Juli-August 2026: ASADI 05.07., HAUSGEM. 12.07.,
+    // KNEER 19.07., LISKE 26.07., GHARBI 02.08., DILETTO 09.08., FLEMMING 16.08., VASILJEVS 23.08.).
+    const anchorDate = new Date(2026, 5, 21);
     // Admin-Login läuft jetzt über echtes Firebase-Auth-Konto (E-Mail/Passwort) statt Klartext-PIN im Code.
     // Muss einmalig in der Firebase Console angelegt werden (siehe README).
     const ADMIN_EMAIL = "admin@kehrwoche-stetten.app";
@@ -328,8 +331,8 @@
         const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
         const tomorrowStr = window.formatDateString(tomorrow);
 
-        // Kehrwoche-Erinnerung: Sonntag = 1 Tag vor Montag
-        if (tomorrow.getDay() === 1 && window.getPersonForDate(tomorrow) === currentUserIdentity) {
+        // Kehrwoche-Erinnerung: Samstag = 1 Tag vor Sonntag (Kehrwoche beginnt laut Muellkalender Sonntags)
+        if (tomorrow.getDay() === 0 && window.getPersonForDate(tomorrow) === currentUserIdentity) {
             if (localStorage.getItem('kw_notif_kehrwoche') !== tomorrowStr) {
                 localStorage.setItem('kw_notif_kehrwoche', tomorrowStr);
                 showBrowserNotification(
@@ -635,13 +638,14 @@
     window.getPersonForDate = function(date) {
         const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
         const day = d.getDay();
-        const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-        const monday = new Date(d.setDate(diff));
+        // Laut dem echten Muellkalender an der Wand beginnt die Kehrwoche IMMER Sonntags
+        // (nicht Montags) - also die Woche auf den vorherigen bzw. gleichen Sonntag zurueckrechnen.
+        const sunday = new Date(d.setDate(d.getDate() - day));
         // UTC-Differenz statt lokaler Zeit verwenden, damit die Zeitumstellung (Sommer-/Winterzeit)
         // die Wochenberechnung nicht um eine Stunde verschiebt und dadurch eine ganze Woche verschluckt.
-        const mondayUTC = Date.UTC(monday.getFullYear(), monday.getMonth(), monday.getDate());
+        const sundayUTC = Date.UTC(sunday.getFullYear(), sunday.getMonth(), sunday.getDate());
         const anchorUTC = Date.UTC(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate());
-        const weeksDiff = Math.floor((mondayUTC - anchorUTC) / (7 * 24 * 60 * 60 * 1000));
+        const weeksDiff = Math.floor((sundayUTC - anchorUTC) / (7 * 24 * 60 * 60 * 1000));
         const turnIndex = Math.floor(weeksDiff / weeksPerTurn);
         let index = turnIndex % rotation.length;
         if (index < 0) index += rotation.length;
@@ -684,10 +688,9 @@
         document.getElementById("status-box").classList.toggle("ring-green-400", currentPerson === currentUserIdentity);
 
         const day = today.getDay();
-        const diff = today.getDate() - day + (day === 0 ? -6 : 1);
-        const mon = new Date(new Date().setDate(diff));
-        const sun = new Date(new Date(mon).setDate(mon.getDate() + 6));
-        document.getElementById("current-week-dates").innerText = `${mon.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'})} - ${sun.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'})}`;
+        const son = new Date(new Date().setDate(today.getDate() - day));
+        const sam = new Date(new Date(son).setDate(son.getDate() + 6));
+        document.getElementById("current-week-dates").innerText = `${son.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'})} - ${sam.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'})}`;
 
         window.renderCalendar();
         window.renderResidents();
@@ -839,10 +842,9 @@
     window.getNextWeekForPerson = (target) => {
         let d = new Date(); d.setHours(0,0,0,0);
         const day = d.getDay();
-        const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-        let mon = new Date(d.setDate(diff));
+        let son = new Date(d.setDate(d.getDate() - day));
         for (let i = 0; i < 20; i++) {
-            let test = new Date(mon); test.setDate(test.getDate() + (i * 7));
+            let test = new Date(son); test.setDate(test.getDate() + (i * 7));
             if (window.getPersonForDate(test) === target) return test;
         }
         return null;
@@ -1109,9 +1111,9 @@ SEHR WICHTIG FÜR DEN NAMEN (name):
     window.closeAdminModal = () => document.getElementById('admin-modal').classList.add("hidden");
     window.closeNextWeekModal = () => document.getElementById('nextweek-modal').classList.add("hidden");
 
-    function openNextWeekModal(nextMonday) {
+    function openNextWeekModal(nextSunday) {
         document.getElementById('nextweek-modal-text').innerText =
-            `Familie ${currentUserIdentity} – ab Montag seid ihr für die Kehrwoche dran!`;
+            `Familie ${currentUserIdentity} – ab Sonntag seid ihr für die Kehrwoche dran!`;
         const m = document.getElementById('nextweek-modal'); m.classList.remove("hidden");
         setTimeout(() => { m.classList.remove("opacity-0"); document.getElementById('nextweek-modal-content').classList.remove("scale-90"); }, 10);
     }
@@ -1123,15 +1125,14 @@ SEHR WICHTIG FÜR DEN NAMEN (name):
 
         const today = new Date(); today.setHours(0, 0, 0, 0);
         const day = today.getDay();
-        const diff = today.getDate() - day + (day === 0 ? -6 : 1);
-        const thisMonday = new Date(today); thisMonday.setDate(diff);
-        const nextMonday = new Date(thisMonday); nextMonday.setDate(thisMonday.getDate() + 7);
+        const thisSunday = new Date(today); thisSunday.setDate(today.getDate() - day);
+        const nextSunday = new Date(thisSunday); nextSunday.setDate(thisSunday.getDate() + 7);
 
-        if (window.getPersonForDate(new Date(nextMonday)) === currentUserIdentity) {
-            const key = window.formatDateString(nextMonday);
+        if (window.getPersonForDate(new Date(nextSunday)) === currentUserIdentity) {
+            const key = window.formatDateString(nextSunday);
             if (localStorage.getItem('kw_notif_nextweek_popup') !== key) {
                 localStorage.setItem('kw_notif_nextweek_popup', key);
-                openNextWeekModal(nextMonday);
+                openNextWeekModal(nextSunday);
             }
         }
     }
@@ -1157,7 +1158,7 @@ SEHR WICHTIG FÜR DEN NAMEN (name):
             let dStr = window.formatDateString(d);
             let person = window.getPersonForDate(d);
             
-            if(d.getDay() === 1) {
+            if(d.getDay() === 0) {
                 let nextSun = new Date(d); nextSun.setDate(d.getDate() + 7);
                 icsContent += `BEGIN:VEVENT\nDTSTART;VALUE=DATE:${formatICSDate(d)}\nDTEND;VALUE=DATE:${formatICSDate(nextSun)}\nSUMMARY:Kehrwoche: ${person}\nEND:VEVENT\n`;
             }
