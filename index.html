@@ -212,6 +212,15 @@
     </div>
 </div>
 
+<div id="nextweek-modal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center hidden opacity-0 transition-all duration-200 px-6 backdrop-blur-md">
+    <div class="bg-white rounded-[2.5rem] w-full max-w-sm p-8 shadow-2xl transform scale-90 text-center" id="nextweek-modal-content">
+        <div class="text-6xl mb-4">🧹</div>
+        <h3 class="text-xl font-black text-gray-800 mb-3">Nächste Woche seid ihr dran!</h3>
+        <p id="nextweek-modal-text" class="text-sm text-gray-500 mb-8 leading-relaxed"></p>
+        <button onclick="closeNextWeekModal()" class="w-full bg-amber-500 text-white font-black py-4 rounded-2xl shadow-xl active:scale-95 transition">ALLES KLAR!</button>
+    </div>
+</div>
+
 <script type="module">
     import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithCustomToken, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -639,6 +648,7 @@
         window.renderResidents();
         renderUpcomingTrash();
         checkKehrwocheReminder();
+        checkNextWeekPopup();
     };
 
     function renderUpcomingTrash() {
@@ -1011,6 +1021,38 @@ SEHR WICHTIG FÜR DEN NAMEN (name):
 
     window.closeModal = () => document.getElementById('day-modal').classList.add("hidden");
     window.closeAdminModal = () => document.getElementById('admin-modal').classList.add("hidden");
+    window.closeNextWeekModal = () => document.getElementById('nextweek-modal').classList.add("hidden");
+
+    function openNextWeekModal(nextMonday) {
+        const opts = { day: '2-digit', month: '2-digit' };
+        const start = nextMonday.toLocaleDateString('de-DE', opts);
+        const end = new Date(nextMonday); end.setDate(end.getDate() + 6);
+        const endStr = end.toLocaleDateString('de-DE', opts);
+        document.getElementById('nextweek-modal-text').innerText =
+            `Familie ${currentUserIdentity} – ab Montag (${start}. – ${endStr}.) seid ihr für das Treppenhaus zuständig.`;
+        const m = document.getElementById('nextweek-modal'); m.classList.remove("hidden");
+        setTimeout(() => { m.classList.remove("opacity-0"); document.getElementById('nextweek-modal-content').classList.remove("scale-90"); }, 10);
+    }
+
+    // Popup: einmal pro Woche, sobald man als betroffene Familie eingeloggt die App oeffnet
+    // und in der naechsten Woche (nicht dieser) mit der Kehrwoche dran ist.
+    function checkNextWeekPopup() {
+        if (!currentUserIdentity) return;
+
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const day = today.getDay();
+        const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+        const thisMonday = new Date(today); thisMonday.setDate(diff);
+        const nextMonday = new Date(thisMonday); nextMonday.setDate(thisMonday.getDate() + 7);
+
+        if (window.getPersonForDate(new Date(nextMonday)) === currentUserIdentity) {
+            const key = window.formatDateString(nextMonday);
+            if (localStorage.getItem('kw_notif_nextweek_popup') !== key) {
+                localStorage.setItem('kw_notif_nextweek_popup', key);
+                openNextWeekModal(nextMonday);
+            }
+        }
+    }
     
     window.openUpdateModal = () => { 
         document.getElementById('update-modal').classList.remove("hidden"); 
