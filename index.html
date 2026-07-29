@@ -234,7 +234,7 @@
     import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithCustomToken, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, deleteDoc, getDocs, runTransaction, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-    import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
+    import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
 
     // --- DEINE PERSÖNLICHE GOOGLE DATENBANK ---
     const myFirebaseConfig = {
@@ -287,6 +287,12 @@
         }
     };
 
+    // Ohne diesen Listener kommen Push-Nachrichten nur an, waehrend die App im Hintergrund
+    // oder geschlossen ist (dann greift sw.js/onBackgroundMessage). Ist der Tab gerade offen
+    // und aktiv im Vordergrund, muss die Nachricht hier manuell angezeigt werden - sonst passiert
+    // fuer den Nutzer sichtbar GAR NICHTS, obwohl die Cloud Function erfolgreich gesendet hat.
+    let foregroundPushListenerAttached = false;
+
     // Echte Hintergrund-Push-Benachrichtigungen (Firebase Cloud Messaging):
     // registriert das Geraet mit der aktuell gewaehlten Familie in der Cloud,
     // damit die Cloud Function (dailyReminderCheck/notifyNewMessage) es erreichen kann.
@@ -299,6 +305,16 @@
             // und der Token wird nie erzeugt.
             const swRegistration = await navigator.serviceWorker.ready;
             const messaging = getMessaging(getApp());
+
+            if (!foregroundPushListenerAttached) {
+                foregroundPushListenerAttached = true;
+                onMessage(messaging, (payload) => {
+                    const title = (payload.data && payload.data.title) || "Haus-App Stetten";
+                    const body = (payload.data && payload.data.body) || "";
+                    showBrowserNotification(title, body, 'foreground-push');
+                });
+            }
+
             const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swRegistration });
             if (token) {
                 await setDoc(doc(db, 'pushTokens', token), {
