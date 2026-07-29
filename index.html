@@ -1029,7 +1029,7 @@ SEHR WICHTIG FÜR DEN NAMEN (name):
         const end = new Date(nextMonday); end.setDate(end.getDate() + 6);
         const endStr = end.toLocaleDateString('de-DE', opts);
         document.getElementById('nextweek-modal-text').innerText =
-            `Familie ${currentUserIdentity} – ab Montag (${start}. – ${endStr}.) seid ihr für das Treppenhaus zuständig.`;
+            `Familie ${currentUserIdentity} – ab Montag (${start} – ${endStr}) seid ihr für das Treppenhaus zuständig.`;
         const m = document.getElementById('nextweek-modal'); m.classList.remove("hidden");
         setTimeout(() => { m.classList.remove("opacity-0"); document.getElementById('nextweek-modal-content').classList.remove("scale-90"); }, 10);
     }
