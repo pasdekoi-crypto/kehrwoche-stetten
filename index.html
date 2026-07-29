@@ -741,7 +741,7 @@
             return `<li class="py-3 flex justify-between items-center ${isMe ? 'bg-green-50 -mx-5 px-5 border-y border-green-100' : ''}">
                 <div class="flex flex-col">
                     <span class="text-xs ${isMe ? 'font-black text-green-700' : 'font-bold text-gray-700'}">${p}</span>
-                    ${getPresenceLabel(p)}
+                    ${isAdmin ? getPresenceLabel(p) : ''}
                     <div class="flex gap-1 mt-1">${trashIcons}</div>
                 </div>
                 <div class="text-right flex items-center gap-2">
