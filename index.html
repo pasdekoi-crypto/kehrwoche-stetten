@@ -133,9 +133,15 @@
 
             <div id="admin-resident-manage" class="hidden mt-4 pt-4 border-t border-gray-100">
                 <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Familie hinzufügen (Admin)</p>
-                <div class="flex gap-2">
+                <div class="flex gap-2 mb-4">
                     <input type="text" id="new-resident-input" placeholder="z.B. MUELLER" class="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-green-500 uppercase">
                     <button onclick="addResident()" class="bg-green-600 text-white text-xs font-black px-4 py-2 rounded-xl">Hinzufügen</button>
+                </div>
+                <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Wochen pro Familie (Admin)</p>
+                <div class="flex gap-2 items-center">
+                    <input type="number" min="1" id="weeks-per-turn-input" class="w-20 border border-gray-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-green-500 text-center">
+                    <button onclick="saveWeeksPerTurn()" class="bg-blue-600 text-white text-xs font-black px-4 py-2 rounded-xl">Speichern</button>
+                    <span id="full-cycle-info" class="text-[10px] text-gray-400 font-bold"></span>
                 </div>
             </div>
         </section>
@@ -241,6 +247,8 @@
     // --- CONFIG ---
     // Fallback, solange die Liste noch nicht aus der Cloud geladen ist (siehe rotationDocRef/onSnapshot)
     let rotation = ["FLEMMING", "VASILJEVS", "ASADI", "HAUSGEM.", "KNEER", "LISKE", "GHARBI", "DILETTO"];
+    // Wieviele Wochen am Stueck jede Familie dran ist, bevor die naechste uebernimmt (Admin einstellbar).
+    let weeksPerTurn = 1;
     const anchorDate = new Date(2026, 0, 5);
     // Admin-Login läuft jetzt über echtes Firebase-Auth-Konto (E-Mail/Passwort) statt Klartext-PIN im Code.
     // Muss einmalig in der Firebase Console angelegt werden (siehe README).
@@ -429,6 +437,9 @@
                         if (snap.exists() && Array.isArray(snap.data().names) && snap.data().names.length > 0) {
                             rotation = snap.data().names;
                         }
+                        if (snap.exists() && Number.isInteger(snap.data().weeksPerTurn) && snap.data().weeksPerTurn > 0) {
+                            weeksPerTurn = snap.data().weeksPerTurn;
+                        }
                         window.initApp();
                     });
 
@@ -588,6 +599,23 @@
         }
     };
 
+    // Legt fest, wieviele Wochen am Stueck jede Familie mit der Kehrwoche dran ist, bevor die
+    // naechste Familie in der Rotation uebernimmt (Standard: 1 Woche).
+    window.saveWeeksPerTurn = async function() {
+        const input = document.getElementById('weeks-per-turn-input');
+        const value = parseInt(input.value, 10);
+        if (!Number.isInteger(value) || value < 1) {
+            return window.showToast("Bitte eine ganze Zahl ab 1 eingeben.", "error");
+        }
+        try {
+            await setDoc(rotationDocRef, { weeksPerTurn: value }, { merge: true });
+            window.showToast(`Zyklus auf ${value} Woche(n) pro Familie gesetzt!`, "success");
+        } catch (e) {
+            console.error("Zyklus-Dauer speichern fehlgeschlagen:", e);
+            window.showToast("Fehler beim Speichern.", "error");
+        }
+    };
+
     // Loescht die "wer war zuletzt online / wann"-Testdaten (claimedIdentities), damit die Familien
     // beim echten Start der App mit einer sauberen Anzeige starten, statt alter Testeintraege.
     window.resetPresenceData = async function() {
@@ -612,7 +640,8 @@
         const mondayUTC = Date.UTC(monday.getFullYear(), monday.getMonth(), monday.getDate());
         const anchorUTC = Date.UTC(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate());
         const weeksDiff = Math.floor((mondayUTC - anchorUTC) / (7 * 24 * 60 * 60 * 1000));
-        let index = weeksDiff % rotation.length;
+        const turnIndex = Math.floor(weeksDiff / weeksPerTurn);
+        let index = turnIndex % rotation.length;
         if (index < 0) index += rotation.length;
         return rotation[index] || "FREE";
     };
@@ -734,7 +763,15 @@
     window.renderResidents = function() {
         const list = document.getElementById("residents-list");
         const isAdmin = localStorage.getItem('kehrwoche_admin') === 'true';
-        list.innerHTML = rotation.map(p => {
+
+        if (isAdmin) {
+            const wptInput = document.getElementById('weeks-per-turn-input');
+            if (wptInput && document.activeElement !== wptInput) wptInput.value = weeksPerTurn;
+            const info = document.getElementById('full-cycle-info');
+            if (info) info.innerText = `Voller Zyklus: ${rotation.length * weeksPerTurn} Wochen`;
+        }
+
+        list.innerHTML = rotation.map((p, i) => {
             const isMe = p === currentUserIdentity;
             const nextDate = window.getNextWeekForPerson(p);
             let dateStr = "Warte...";
@@ -760,7 +797,7 @@
                 </div>
                 <div class="text-right flex items-center gap-2">
                     <span class="text-[10px] font-bold text-gray-400">${dateStr}</span>
-                    ${isAdmin ? `<button onclick="renameResident('${p}')" class="text-gray-400 hover:text-green-600 text-xs p-1" title="Umbenennen">✎</button><button onclick="removeResident('${p}')" class="text-red-400 hover:text-red-600 text-xs p-1" title="Entfernen">✕</button>` : ''}
+                    ${isAdmin ? `<button onclick="moveResident('${p}', -1)" ${i === 0 ? 'disabled' : ''} class="text-gray-300 hover:text-blue-600 text-xs p-1 disabled:opacity-20 disabled:pointer-events-none" title="Nach oben">▲</button><button onclick="moveResident('${p}', 1)" ${i === rotation.length - 1 ? 'disabled' : ''} class="text-gray-300 hover:text-blue-600 text-xs p-1 disabled:opacity-20 disabled:pointer-events-none" title="Nach unten">▼</button><button onclick="renameResident('${p}')" class="text-gray-400 hover:text-green-600 text-xs p-1" title="Umbenennen">✎</button><button onclick="removeResident('${p}')" class="text-red-400 hover:text-red-600 text-xs p-1" title="Entfernen">✕</button>` : ''}
                 </div>
             </li>`;
         }).join("");
@@ -1020,6 +1057,27 @@ SEHR WICHTIG FÜR DEN NAMEN (name):
         } catch (e) {
             console.error("Familie umbenennen fehlgeschlagen:", e);
             window.showToast("Fehler beim Umbenennen: " + e.message, "error");
+        }
+    };
+
+    // Vertauscht eine Familie mit ihrem Nachbarn in der Reihenfolge (direction: -1 = nach oben, +1 = nach unten).
+    // Verschiebt dadurch bewusst die Kehrwoche-Termine aller betroffenen Familien.
+    window.moveResident = async function(name, direction) {
+        try {
+            await runTransaction(db, async (transaction) => {
+                const snap = await transaction.get(rotationDocRef);
+                const names = snap.exists() ? (snap.data().names || []) : [];
+                const idx = names.indexOf(name);
+                if (idx === -1) throw new Error(`"${name}" wurde nicht gefunden`);
+                const swapIdx = idx + direction;
+                if (swapIdx < 0 || swapIdx >= names.length) return;
+                const updated = [...names];
+                [updated[idx], updated[swapIdx]] = [updated[swapIdx], updated[idx]];
+                transaction.set(rotationDocRef, { names: updated }, { merge: true });
+            });
+        } catch (e) {
+            console.error("Familie verschieben fehlgeschlagen:", e);
+            window.showToast("Fehler beim Verschieben: " + e.message, "error");
         }
     };
 
