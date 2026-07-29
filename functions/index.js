@@ -7,7 +7,8 @@ const db = admin.firestore();
 
 // Fallback, falls die Rotation noch nicht in der Cloud angelegt wurde
 const DEFAULT_ROTATION = ["FLEMMING", "VASILJEVS", "ASADI", "HAUSGEM.", "KNEER", "LISKE", "GHARBI", "DILETTO"];
-const ANCHOR_UTC = Date.UTC(2026, 0, 5);
+// Sonntag, an dem laut Muellkalender FLEMMING (Index 0) dran war - siehe index.html (getPersonForDate)
+const ANCHOR_UTC = Date.UTC(2026, 5, 21);
 
 // Liest die aktuelle Bewohner-Liste aus der Cloud (vom Admin per App verwaltet, siehe index.html)
 async function getRotation() {
@@ -18,15 +19,25 @@ async function getRotation() {
     return DEFAULT_ROTATION;
 }
 
-// Identisch zur DST-sicheren Logik im Client (index.html: getPersonForDate)
-function getPersonForDate(date, rotationArr) {
+// Liest die "Wochen pro Familie"-Einstellung (siehe index.html: weeksPerTurn)
+async function getWeeksPerTurn() {
+    const snap = await db.doc("kehrwoche/rotation").get();
+    if (snap.exists && Number.isInteger(snap.data().weeksPerTurn) && snap.data().weeksPerTurn > 0) {
+        return snap.data().weeksPerTurn;
+    }
+    return 1;
+}
+
+// Identisch zur DST-sicheren Logik im Client (index.html: getPersonForDate).
+// Die Kehrwoche-Woche beginnt Sonntags (nicht Montags), siehe echter Muellkalender.
+function getPersonForDate(date, rotationArr, weeksPerTurn) {
     const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
     const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    const monday = new Date(d.setDate(diff));
-    const mondayUTC = Date.UTC(monday.getFullYear(), monday.getMonth(), monday.getDate());
-    const weeksDiff = Math.floor((mondayUTC - ANCHOR_UTC) / (7 * 24 * 60 * 60 * 1000));
-    let index = weeksDiff % rotationArr.length;
+    const sunday = new Date(d.setDate(d.getDate() - day));
+    const sundayUTC = Date.UTC(sunday.getFullYear(), sunday.getMonth(), sunday.getDate());
+    const weeksDiff = Math.floor((sundayUTC - ANCHOR_UTC) / (7 * 24 * 60 * 60 * 1000));
+    const turnIndex = Math.floor(weeksDiff / weeksPerTurn);
+    let index = turnIndex % rotationArr.length;
     if (index < 0) index += rotationArr.length;
     return rotationArr[index] || "FREE";
 }
@@ -58,9 +69,11 @@ exports.dailyReminderCheck = onSchedule(
         const tomorrow = new Date(today);
         tomorrow.setDate(today.getDate() + 1);
         const rotationArr = await getRotation();
+        const weeksPerTurn = await getWeeksPerTurn();
 
-        if (tomorrow.getDay() === 1) {
-            const person = getPersonForDate(tomorrow, rotationArr);
+        // Kehrwoche beginnt Sonntags (Samstag = 1 Tag vorher)
+        if (tomorrow.getDay() === 0) {
+            const person = getPersonForDate(tomorrow, rotationArr, weeksPerTurn);
             if (person !== "FREE" && person !== "HAUSGEM.") {
                 const snap = await db.collection("pushTokens").where("familyName", "==", person).get();
                 await sendAndCleanup(snap.docs, () => ({
@@ -110,6 +123,19 @@ exports.notifyIdentityConflict = onDocumentCreated("identityConflicts/{id}", asy
         data: {
             title: `👋 Noch jemand ist jetzt Familie ${conflict.familyName}`,
             body: `Eine weitere Person${joinedByText} hat sich ebenfalls als eure Familie angemeldet.`,
+        },
+    }));
+});
+
+// Benachrichtigt den Admin, wenn sich eine Familie zum allerersten Mal in der App anmeldet
+// (z.B. wenn der QR-Code an der Haustuer haengt und man wissen will, wer sich zuerst meldet).
+exports.notifyAdminFirstJoin = onDocumentCreated("identityFirstJoins/{id}", async (event) => {
+    const join = event.data.data();
+    const snap = await db.collection("pushTokens").where("isAdmin", "==", true).get();
+    await sendAndCleanup(snap.docs, () => ({
+        data: {
+            title: `👋 Familie ${join.familyName} ist jetzt in der App!`,
+            body: `Familie ${join.familyName} hat sich gerade zum ersten Mal angemeldet.`,
         },
     }));
 });

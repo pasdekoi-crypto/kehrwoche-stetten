@@ -303,6 +303,7 @@
             if (token) {
                 await setDoc(doc(db, 'pushTokens', token), {
                     familyName: currentUserIdentity,
+                    isAdmin: localStorage.getItem('kehrwoche_admin') === 'true',
                     updatedAt: Date.now()
                 });
             }
@@ -523,6 +524,20 @@
                 });
             } catch (e) {
                 console.error("Konflikt-Benachrichtigung fehlgeschlagen:", e);
+            }
+        }
+
+        // Familie hat sich noch NIE zuvor in der App angemeldet (kein Zeitstempel in claimedIdentities) -
+        // Admin per Push benachrichtigen, z.B. wenn der QR-Code an der Haustuer haengt und man wissen will,
+        // wer sich zuerst meldet.
+        if (typeof claimedIdentities[name] !== 'number') {
+            try {
+                await addDoc(collection(db, 'identityFirstJoins'), {
+                    familyName: name,
+                    timestamp: Date.now()
+                });
+            } catch (e) {
+                console.error("Erstanmeldungs-Benachrichtigung fehlgeschlagen:", e);
             }
         }
 
@@ -987,6 +1002,7 @@ SEHR WICHTIG FÜR DEN NAMEN (name):
             // Zurück zur anonymen Sitzung, damit normale Nachbar-Funktionen weiterlaufen
             signInAnonymously(auth).catch(e => console.error("Re-Anon-Login fehlgeschlagen:", e));
             window.checkAdminStatus();
+            registerPushToken();
             window.showToast("Admin Logout", "info");
         } else {
             document.getElementById('admin-pin-input').value = "";
@@ -1016,6 +1032,7 @@ SEHR WICHTIG FÜR DEN NAMEN (name):
             }
 
             window.checkAdminStatus();
+            registerPushToken();
             window.closeAdminModal();
             window.showToast("Admin Aktiv!", "success");
         } catch (err) {
