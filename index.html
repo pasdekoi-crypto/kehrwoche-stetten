@@ -9,6 +9,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Haus-App Stetten - Familie Gharbi & Nachbarn</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SortableJS: fuer Drag & Drop (Maus + Finger/Touch) beim Umsortieren der Kehrwoche-Rotation -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
     <style>
         body { -webkit-tap-highlight-color: transparent; }
         .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
@@ -789,19 +791,50 @@
                 }
                 trashIcons = weekTrash.map(t => `<div class="w-2 h-2 rounded-full m-${t.type}" title="${t.name}"></div>`).join("");
             }
-            return `<li class="py-3 flex justify-between items-center ${isMe ? 'bg-green-50 -mx-5 px-5 border-y border-green-100' : ''}">
-                <div class="flex flex-col">
-                    <span class="text-xs ${isMe ? 'font-black text-green-700' : 'font-bold text-gray-700'}">${p}</span>
-                    ${isAdmin ? getPresenceLabel(p) : ''}
-                    <div class="flex gap-1 mt-1">${trashIcons}</div>
+            return `<li data-name="${p}" class="py-3 flex justify-between items-center ${isMe ? 'bg-green-50 -mx-5 px-5 border-y border-green-100' : ''}">
+                <div class="flex items-center gap-2">
+                    ${isAdmin ? '<span class="drag-handle cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 text-base px-1 select-none touch-none" title="Ziehen zum Verschieben">⠿</span>' : ''}
+                    <div class="flex flex-col">
+                        <span class="text-xs ${isMe ? 'font-black text-green-700' : 'font-bold text-gray-700'}">${p}</span>
+                        ${isAdmin ? getPresenceLabel(p) : ''}
+                        <div class="flex gap-1 mt-1">${trashIcons}</div>
+                    </div>
                 </div>
                 <div class="text-right flex items-center gap-2">
                     <span class="text-[10px] font-bold text-gray-400">${dateStr}</span>
-                    ${isAdmin ? `<button onclick="moveResident('${p}', -1)" ${i === 0 ? 'disabled' : ''} class="text-gray-300 hover:text-blue-600 text-xs p-1 disabled:opacity-20 disabled:pointer-events-none" title="Nach oben">▲</button><button onclick="moveResident('${p}', 1)" ${i === rotation.length - 1 ? 'disabled' : ''} class="text-gray-300 hover:text-blue-600 text-xs p-1 disabled:opacity-20 disabled:pointer-events-none" title="Nach unten">▼</button><button onclick="renameResident('${p}')" class="text-gray-400 hover:text-green-600 text-xs p-1" title="Umbenennen">✎</button><button onclick="removeResident('${p}')" class="text-red-400 hover:text-red-600 text-xs p-1" title="Entfernen">✕</button>` : ''}
+                    ${isAdmin ? `<button onclick="renameResident('${p}')" class="text-gray-400 hover:text-green-600 text-xs p-1" title="Umbenennen">✎</button><button onclick="removeResident('${p}')" class="text-red-400 hover:text-red-600 text-xs p-1" title="Entfernen">✕</button>` : ''}
                 </div>
             </li>`;
         }).join("");
+
+        initResidentDragSort(isAdmin);
     };
+
+    // Drag & Drop (Maus + Finger) zum Umsortieren der Rotation, per SortableJS.
+    // Wird bei jedem renderResidents() neu aufgesetzt, da die Liste komplett neu gerendert wird.
+    let residentSortable = null;
+    function initResidentDragSort(isAdmin) {
+        if (residentSortable) { residentSortable.destroy(); residentSortable = null; }
+        if (!isAdmin) return;
+        const list = document.getElementById("residents-list");
+        residentSortable = new Sortable(list, {
+            handle: '.drag-handle',
+            animation: 150,
+            delay: 150,
+            delayOnTouchOnly: true,
+            onEnd: async () => {
+                const newOrder = Array.from(list.querySelectorAll('li[data-name]')).map(li => li.dataset.name);
+                try {
+                    await setDoc(rotationDocRef, { names: newOrder }, { merge: true });
+                    window.showToast("Reihenfolge gespeichert!", "success");
+                } catch (e) {
+                    console.error("Reihenfolge speichern fehlgeschlagen:", e);
+                    window.showToast("Fehler beim Speichern der Reihenfolge.", "error");
+                    window.renderResidents();
+                }
+            }
+        });
+    }
 
     window.getNextWeekForPerson = (target) => {
         let d = new Date(); d.setHours(0,0,0,0);
@@ -1060,26 +1093,6 @@ SEHR WICHTIG FÜR DEN NAMEN (name):
         }
     };
 
-    // Vertauscht eine Familie mit ihrem Nachbarn in der Reihenfolge (direction: -1 = nach oben, +1 = nach unten).
-    // Verschiebt dadurch bewusst die Kehrwoche-Termine aller betroffenen Familien.
-    window.moveResident = async function(name, direction) {
-        try {
-            await runTransaction(db, async (transaction) => {
-                const snap = await transaction.get(rotationDocRef);
-                const names = snap.exists() ? (snap.data().names || []) : [];
-                const idx = names.indexOf(name);
-                if (idx === -1) throw new Error(`"${name}" wurde nicht gefunden`);
-                const swapIdx = idx + direction;
-                if (swapIdx < 0 || swapIdx >= names.length) return;
-                const updated = [...names];
-                [updated[idx], updated[swapIdx]] = [updated[swapIdx], updated[idx]];
-                transaction.set(rotationDocRef, { names: updated }, { merge: true });
-            });
-        } catch (e) {
-            console.error("Familie verschieben fehlgeschlagen:", e);
-            window.showToast("Fehler beim Verschieben: " + e.message, "error");
-        }
-    };
 
     window.openModal = (date, person, trash) => { 
         document.getElementById("modal-date").innerText = date.toLocaleDateString('de-DE',{weekday:'long', day:'numeric', month:'long'}); 
