@@ -1024,12 +1024,8 @@ SEHR WICHTIG FÜR DEN NAMEN (name):
     window.closeNextWeekModal = () => document.getElementById('nextweek-modal').classList.add("hidden");
 
     function openNextWeekModal(nextMonday) {
-        const opts = { day: '2-digit', month: '2-digit' };
-        const start = nextMonday.toLocaleDateString('de-DE', opts);
-        const end = new Date(nextMonday); end.setDate(end.getDate() + 6);
-        const endStr = end.toLocaleDateString('de-DE', opts);
         document.getElementById('nextweek-modal-text').innerText =
-            `Familie ${currentUserIdentity} – ab Montag (${start} – ${endStr}) seid ihr für das Treppenhaus zuständig.`;
+            `Familie ${currentUserIdentity} – ab Montag seid ihr für die Kehrwoche dran!`;
         const m = document.getElementById('nextweek-modal'); m.classList.remove("hidden");
         setTimeout(() => { m.classList.remove("opacity-0"); document.getElementById('nextweek-modal-content').classList.remove("scale-90"); }, 10);
     }
