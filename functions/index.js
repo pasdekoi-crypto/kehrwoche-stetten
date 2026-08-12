@@ -46,6 +46,18 @@ function formatDateString(d) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// Kalendertag/Stunde in Europe/Berlin, unabhaengig von der Server-Zeitzone der Cloud Function
+// (die intern in UTC laeuft) - wichtig, da dailyReminderCheck jetzt stuendlich prueft und nicht
+// mehr nur einmal abends, wo eine grobe UTC-Naeherung frueher noch unauffaellig war.
+function getBerlinDateString(date) {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Berlin" }).format(date);
+}
+
+function getBerlinHour(date) {
+    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Berlin", hour: "2-digit", hour12: false }).formatToParts(date);
+    return parseInt(parts.find((p) => p.type === "hour").value, 10);
+}
+
 // Sendet an eine Liste von Token-Dokument-IDs und entfernt ungueltig gewordene Tokens
 async function sendAndCleanup(tokenDocs, buildMessage) {
     if (tokenDocs.length === 0) return;
@@ -60,19 +72,39 @@ async function sendAndCleanup(tokenDocs, buildMessage) {
     if (cleanup.length > 0) await Promise.all(cleanup);
 }
 
-// Laeuft taeglich um 18:00 (Europe/Berlin): prueft ob morgen Kehrwoche beginnt
-// oder Muell faellig ist, und benachrichtigt die betroffenen Familien.
+// Laeuft stuendlich, sendet aber nur einmal taeglich - zur vom Admin in der App eingestellten
+// Stunde (Feld "reminderHour" in kehrwoche/rotation, Default 18 Uhr, siehe index.html:
+// saveReminderHour). Prueft dann ob morgen Kehrwoche beginnt oder Muell faellig ist, und
+// benachrichtigt die betroffenen Familien.
 exports.dailyReminderCheck = onSchedule(
-    { schedule: "0 18 * * *", timeZone: "Europe/Berlin" },
+    { schedule: "0 * * * *", timeZone: "Europe/Berlin" },
     async () => {
-        const today = new Date();
+        const now = new Date();
+        const todayStr = getBerlinDateString(now);
+        const currentHour = getBerlinHour(now);
+
+        const rotationSnap = await db.doc("kehrwoche/rotation").get();
+        const rotationData = rotationSnap.exists ? rotationSnap.data() : {};
+        const configuredHour = Number.isInteger(rotationData.reminderHour) && rotationData.reminderHour >= 0 && rotationData.reminderHour <= 23
+            ? rotationData.reminderHour
+            : 18;
+
+        if (currentHour !== configuredHour) return;
+        if (rotationData.lastReminderRunDate === todayStr) return;
+        await db.doc("kehrwoche/rotation").set({ lastReminderRunDate: todayStr }, { merge: true });
+
+        // "Morgen" ueber den Berlin-Kalendertag berechnen (nicht ueber rohe Server-UTC-Zeit),
+        // damit das auch fuer fruehe Stunden (z.B. reminderHour = 1) korrekt bleibt.
+        const [y, m, d] = todayStr.split("-").map(Number);
+        const today = new Date(Date.UTC(y, m - 1, d));
         const tomorrow = new Date(today);
-        tomorrow.setDate(today.getDate() + 1);
+        tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+
         const rotationArr = await getRotation();
         const weeksPerTurn = await getWeeksPerTurn();
 
         // Kehrwoche beginnt Sonntags (Samstag = 1 Tag vorher)
-        if (tomorrow.getDay() === 0) {
+        if (tomorrow.getUTCDay() === 0) {
             const person = getPersonForDate(tomorrow, rotationArr, weeksPerTurn);
             if (person !== "FREE" && person !== "HAUSGEM.") {
                 const snap = await db.collection("pushTokens").where("familyName", "==", person).get();

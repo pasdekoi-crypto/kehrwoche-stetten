@@ -145,6 +145,12 @@
                     <button onclick="saveWeeksPerTurn()" class="bg-blue-600 text-white text-xs font-black px-4 py-2 rounded-xl">Speichern</button>
                     <span id="full-cycle-info" class="text-[10px] text-gray-400 font-bold"></span>
                 </div>
+                <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 mt-4">Erinnerungs-Uhrzeit (Admin)</p>
+                <div class="flex gap-2 items-center">
+                    <input type="number" min="0" max="23" id="reminder-hour-input" class="w-20 border border-gray-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-green-500 text-center">
+                    <button onclick="saveReminderHour()" class="bg-blue-600 text-white text-xs font-black px-4 py-2 rounded-xl">Speichern</button>
+                    <span class="text-[10px] text-gray-400 font-bold">Uhr (0-23), am Vortag</span>
+                </div>
             </div>
         </section>
 
@@ -251,6 +257,9 @@
     let rotation = ["FLEMMING", "VASILJEVS", "ASADI", "HAUSGEM.", "KNEER", "LISKE", "GHARBI", "DILETTO"];
     // Wieviele Wochen am Stueck jede Familie dran ist, bevor die naechste uebernimmt (Admin einstellbar).
     let weeksPerTurn = 1;
+    // Stunde (0-23, Europe/Berlin), zu der die Cloud Function die taegliche Push-Erinnerung
+    // verschickt (siehe functions/index.js: dailyReminderCheck). Vom Admin per App einstellbar.
+    let reminderHour = 18;
     // Sonntag, an dem laut Muellkalender FLEMMING (Index 0) mit der Kehrwoche dran war/ist -
     // verifiziert anhand des ausgehaengten AWB-Kalenders (Juli-August 2026: ASADI 05.07., HAUSGEM. 12.07.,
     // KNEER 19.07., LISKE 26.07., GHARBI 02.08., DILETTO 09.08., FLEMMING 16.08., VASILJEVS 23.08.).
@@ -462,6 +471,9 @@
                         if (snap.exists() && Number.isInteger(snap.data().weeksPerTurn) && snap.data().weeksPerTurn > 0) {
                             weeksPerTurn = snap.data().weeksPerTurn;
                         }
+                        if (snap.exists() && Number.isInteger(snap.data().reminderHour) && snap.data().reminderHour >= 0 && snap.data().reminderHour <= 23) {
+                            reminderHour = snap.data().reminderHour;
+                        }
                         window.initApp();
                     });
 
@@ -652,6 +664,23 @@
         }
     };
 
+    // Legt fest, um wieviel Uhr (Europe/Berlin) die Cloud Function die taegliche Push-Erinnerung
+    // fuer Kehrwoche/Muell verschickt (siehe functions/index.js: dailyReminderCheck).
+    window.saveReminderHour = async function() {
+        const input = document.getElementById('reminder-hour-input');
+        const value = parseInt(input.value, 10);
+        if (!Number.isInteger(value) || value < 0 || value > 23) {
+            return window.showToast("Bitte eine Stunde von 0 bis 23 eingeben.", "error");
+        }
+        try {
+            await setDoc(rotationDocRef, { reminderHour: value }, { merge: true });
+            window.showToast(`Erinnerung wird jetzt um ${value}:00 Uhr verschickt!`, "success");
+        } catch (e) {
+            console.error("Erinnerungs-Uhrzeit speichern fehlgeschlagen:", e);
+            window.showToast("Fehler beim Speichern.", "error");
+        }
+    };
+
     // Loescht die "wer war zuletzt online / wann"-Testdaten (claimedIdentities), damit die Familien
     // beim echten Start der App mit einer sauberen Anzeige starten, statt alter Testeintraege.
     window.resetPresenceData = async function() {
@@ -805,6 +834,8 @@
             if (wptInput && document.activeElement !== wptInput) wptInput.value = weeksPerTurn;
             const info = document.getElementById('full-cycle-info');
             if (info) info.innerText = `Voller Zyklus: ${rotation.length * weeksPerTurn} Wochen`;
+            const rhInput = document.getElementById('reminder-hour-input');
+            if (rhInput && document.activeElement !== rhInput) rhInput.value = reminderHour;
         }
 
         list.innerHTML = rotation.map((p, i) => {
