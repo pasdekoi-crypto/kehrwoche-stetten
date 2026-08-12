@@ -677,7 +677,7 @@
             window.showToast(`Erinnerung wird jetzt um ${value}:00 Uhr verschickt!`, "success");
         } catch (e) {
             console.error("Erinnerungs-Uhrzeit speichern fehlgeschlagen:", e);
-            window.showToast("Fehler beim Speichern.", "error");
+            window.showToast(`Fehler beim Speichern: ${e.code || e.message || e}`, "error");
         }
     };
 
