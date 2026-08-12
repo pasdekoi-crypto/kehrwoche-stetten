@@ -441,6 +441,10 @@
                 }
 
                 if (user) {
+                    // Bei jeder Aenderung der echten Auth-Sitzung sofort gegen den lokal
+                    // gemerkten Admin-Status abgleichen (siehe checkAdminStatus).
+                    window.checkAdminStatus();
+
                     // Sync Kalender
                     onSnapshot(scheduleDocRef, (snap) => {
                         updateSyncStatus("online");
@@ -1090,7 +1094,18 @@ SEHR WICHTIG FÜR DEN NAMEN (name):
     };
 
     window.checkAdminStatus = () => {
-        const a = localStorage.getItem('kehrwoche_admin')==='true';
+        // Absicherung gegen Sitzungs-Drift: "ist Admin" wird lokal in localStorage gemerkt,
+        // aber die echte Berechtigung kommt aus der Firebase-Auth-Sitzung (E-Mail-Login).
+        // Faellt diese echte Sitzung z.B. durch Speicherbereinigung des Betriebssystems im
+        // Hintergrund auf anonym zurueck, waere die App sonst unbemerkt "Schein-Admin" -
+        // Aenderungen wuerden dann still an permission-denied scheitern (siehe 12.08.2026).
+        // Deshalb hier bei jedem Aufruf gegen die echte Sitzung pruefen und ggf. korrigieren.
+        let a = localStorage.getItem('kehrwoche_admin')==='true';
+        if (a && auth.currentUser && auth.currentUser.email !== ADMIN_EMAIL) {
+            a = false;
+            localStorage.removeItem('kehrwoche_admin');
+            window.showToast("Admin-Sitzung abgelaufen - bitte neu anmelden.", "error");
+        }
         document.getElementById('admin-update-btn').classList.toggle('hidden', !a);
         document.getElementById('admin-clear-msgs-btn').classList.toggle('hidden', !a);
         document.getElementById('admin-reset-presence-btn').classList.toggle('hidden', !a);
